@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { can, useAuth } from "../lib/auth";
 import { useLive } from "../lib/live";
 
 function Column({ title, rows, unit }: { title: string; rows: any[]; unit: string }) {
@@ -31,6 +32,7 @@ function Column({ title, rows, unit }: { title: string; rows: any[]; unit: strin
 
 export default function Comparison() {
   const { revision } = useLive();
+  const { role } = useAuth();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +50,19 @@ export default function Comparison() {
     <div className="page">
       <div className="page-head">
         <h2>Cross-company comparison</h2>
-        <span className="muted">last 30 days</span>
+        <div className="row">
+          <span className="muted">last 30 days</span>
+          {can(role, "analyst") && (
+            <button
+              className="chip"
+              onClick={() =>
+                api.downloadReport("/api/reports/comparison.csv", "comparison.csv")
+              }
+            >
+              export
+            </button>
+          )}
+        </div>
       </div>
       <div className="three-col">
         <Column title="Most volatile" rows={data.most_volatile} unit="avg daily close move" />

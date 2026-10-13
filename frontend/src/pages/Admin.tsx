@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useLive } from "../lib/live";
 import { Role } from "../lib/api";
+import NewsFeed from "../components/NewsFeed";
 
 const PORTALS = ["all", "merolagani", "sharesansar", "nepsealpha", "bizmandu", "market"];
 
@@ -10,16 +11,27 @@ export default function Admin() {
   const [runs, setRuns] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [news, setNews] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [untaggedOnly, setUntaggedOnly] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newCo, setNewCo] = useState({ symbol: "", name: "", sector: "", aliases: "" });
 
   async function load() {
     try {
-      const [r, u, c] = await Promise.all([api.crawlRuns(), api.users(), api.companies()]);
+      const [r, u, c, n, al] = await Promise.all([
+        api.crawlRuns(),
+        api.users(),
+        api.companies(),
+        api.news({ untagged: untaggedOnly }),
+        api.alerts(),
+      ]);
       setRuns(r);
       setUsers(u);
       setCompanies(c);
+      setNews(n.slice(0, 20));
+      setAlerts(al);
       setError(null);
     } catch (e: any) {
       setError(e.message);
@@ -29,7 +41,33 @@ export default function Admin() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revision]);
+  }, [revision, untaggedOnly]);
+
+  async function correct(articleId: number, companyId: number, action: "add" | "remove") {
+    try {
+      await api.recategorize(articleId, companyId, action);
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
+  async function runAlertCheck() {
+    setBusy("alerts");
+    try {
+      await api.checkAlerts();
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function ackAlert(id: number) {
+    await api.ackAlert(id);
+    await load();
+  }
 
   async function trigger(portal: string) {
     setBusy(portal);
@@ -150,6 +188,85 @@ export default function Admin() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="card">
+        <div className="row between">
+          <h3>Volume anomaly alerts</h3>
+          <button className="chip" disabled={busy === "alerts"} onClick={runAlertCheck}>
+            {busy === "alerts" ? "checking…" : "check now"}
+          </button>
+        </div>
+        <p className="muted small">
+          Fired when a day's volume crosses the robust-z threshold (default 3.5). The market
+          crawl checks automatically; this button runs the scan on demand.
+        </p>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Severity</th>
+              <th>Message</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {alerts.map((a) => (
+              <tr key={a.id} className={a.acknowledged ? "muted" : ""}>
+                <td className="small muted">{new Date(a.date).toLocaleDateString()}</td>
+                <td>
+                  <span className={"status " + (a.severity === "high" ? "error" : "queued")}>
+                    {a.severity}
+                  </span>
+                </td>
+                <td>{a.message}</td>
+                <td>
+                  {a.acknowledged ? (
+                    <span className="muted small">ack</span>
+                  ) : (
+                    <button className="ghost small" onClick={() => ackAlert(a.id)}>
+                      acknowledge
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {alerts.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  no alerts
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card">
+        <div className="row between">
+          <h3>News category correction</h3>
+          <label className="row small muted" style={{ gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={untaggedOnly}
+              onChange={(e) => setUntaggedOnly(e.target.checked)}
+            />
+            show untagged only (review queue)
+          </label>
+        </div>
+        <p className="muted small">
+          Tag mis-assignments get fixed here; each change is appended to correction_log for a
+          future retrain. Add a company with the dropdown, remove one with the × on its chip.
+        </p>
+        <div className="scroll" style={{ maxHeight: 460, overflow: "auto" }}>
+          <NewsFeed
+            articles={news}
+            companies={companies}
+            onCorrect={correct}
+            allowRemoveAll
+            emptyText={untaggedOnly ? "No untagged articles — nice." : "No articles yet."}
+          />
+        </div>
       </div>
 
       <div className="two-col">

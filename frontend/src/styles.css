@@ -128,6 +128,12 @@ h4 { font-size: 13px; margin-top: 1.1rem; color: var(--muted); }
 .status.running { color: var(--accent); background: rgba(77,163,255,.12); }
 .status.ok { color: var(--up); background: rgba(53,201,138,.12); }
 .status.error { color: var(--down); background: rgba(241,106,106,.12); }
+.badge-warn {
+  font-size: 11px; font-weight: 500; text-transform: uppercase;
+  color: var(--warn); background: rgba(245,166,35,.12);
+  border: 1px solid rgba(245,166,35,.4);
+  padding: 1px 6px; border-radius: 6px; vertical-align: middle;
+}
 
 .metrics { display: flex; gap: 24px; margin: 8px 0 4px; flex-wrap: wrap; }
 .metric { display: flex; flex-direction: column; }
@@ -149,8 +155,16 @@ h4 { font-size: 13px; margin-top: 1.1rem; color: var(--muted); }
   gap: 5px;
   align-items: center;
 }
-.tag em { font-style: normal; color: var(--muted); }
-.tag.manual { border-color: var(--accent); }
+.tag em { font-style: normal; color: var(--muted); }.tag.manual { border-color: var(--accent); }
+.tag-x {
+  all: unset;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.tag-x:hover { color: var(--down); }
 
 button, select, input {
   font: inherit;

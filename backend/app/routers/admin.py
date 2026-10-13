@@ -1,5 +1,5 @@
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import SessionLocal, get_db
 from ..deps import require_role
-from ..models import CrawlRun, JobLog, User
-from ..schemas import CrawlRunOut, UserOut
+from ..events import publish
+from ..models import Alert, CrawlRun, JobLog, User
+from ..schemas import AlertOut, CrawlRunOut, UserOut
 
 router = APIRouter()
 _pool = ThreadPoolExecutor(max_workers=2)
@@ -112,7 +113,9 @@ def retag_now(db: Session = Depends(get_db), _: User = Depends(require_role("adm
     except Exception as exc:
         db.add(JobLog(kind="retag", status="error", detail=str(exc)[:2000]))
         db.commit()
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"retag failed: {exc}")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"retag failed: {exc}"
+        ) from exc
     return {"retagged": result.get("articles_processed", 0)}
 
 
@@ -136,3 +139,50 @@ def set_role(
     target.role = role
     db.commit()
     return {"ok": True, "user_id": user_id, "role": role}
+
+
+@router.get("/alerts", response_model=list[AlertOut])
+def list_alerts(
+    only_open: bool = Query(False),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    q = db.query(Alert)
+    if only_open:
+        q = q.filter(Alert.acknowledged == False)  # noqa: E712
+    return q.order_by(Alert.id.desc()).limit(limit).all()
+
+
+@router.post("/alerts/check")
+def check_alerts(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    """Run the anomaly scan now instead of waiting for the next market crawl.
+    Useful right after seeding, and it is how the demo produces alerts."""
+    from ..services.alerts import scan_volume_anomalies
+
+    created = scan_volume_anomalies(db)
+    for a in created:
+        publish(
+            {
+                "type": "alert_created",
+                "alert_id": a.id,
+                "company_id": a.company_id,
+                "severity": a.severity,
+                "message": a.message,
+            }
+        )
+    return {"created": len(created)}
+
+
+@router.post("/alerts/{alert_id}/ack")
+def ack_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    alert = db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
+    alert.acknowledged = True
+    db.commit()
+    return {"ok": True, "alert_id": alert_id}

@@ -15,6 +15,7 @@ def list_news(
     company_id: int | None = None,
     source: str | None = None,
     q: str | None = None,
+    untagged: bool = Query(False, description="only articles with no company tag (review queue)"),
     limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
@@ -23,6 +24,11 @@ def list_news(
     if company_id:
         query = query.join(ArticleTag, ArticleTag.article_id == Article.id).filter(
             ArticleTag.company_id == company_id
+        )
+    elif untagged:
+        query = (
+            query.outerjoin(ArticleTag, ArticleTag.article_id == Article.id)
+            .filter(ArticleTag.id.is_(None))
         )
     if source:
         query = query.filter(Article.source == source)

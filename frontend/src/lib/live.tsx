@@ -31,6 +31,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setNotice(`Market data updated (${(e as any).status})`);
     } else if (e.type === "retag_finished") {
       setNotice(`Re-tagged ${(e as any).articles_processed} articles`);
+    } else if (e.type === "alert_created") {
+      setNotice(`Alert: ${(e as any).message}`);
     }
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setNotice(null), 6000);

@@ -25,7 +25,7 @@ def _pearson(a, b):
     if len(a) < 3 or len(b) < 3 or len(a) != len(b):
         return None
     ma, mb = _mean(a), _mean(b)
-    num = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+    num = sum((x - ma) * (y - mb) for x, y in zip(a, b, strict=False))
     da = sum((x - ma) ** 2 for x in a) ** 0.5
     db = sum((y - mb) ** 2 for y in b) ** 0.5
     if da == 0 or db == 0:
@@ -180,7 +180,7 @@ def news_price_check(db, company_id: int, days: int = 30):
     for i in range(len(prices) - 1):
         d = prices[i].date
         n = news_by_day.get(d, 0)
-        if isinstance(n, (list, tuple)):
+        if isinstance(n, list | tuple):
             n = n[0]
         nxt = prices[i + 1]
         ret = abs(nxt.close - prices[i].close) / prices[i].close if prices[i].close else 0

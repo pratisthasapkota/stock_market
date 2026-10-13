@@ -9,8 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import models
 from .config import settings
 from .database import SessionLocal, engine
+from .errors import register_error_handlers
 from .events import manager, start_listener
-from .routers import admin, auth, companies, news, ws
+from .routers import admin, auth, companies, news, reports, ws
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 log = logging.getLogger("main")
@@ -72,7 +73,10 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
 app.include_router(news.router, prefix="/api/news", tags=["news"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(ws.router, prefix="/ws", tags=["ws"])
+
+register_error_handlers(app)
 
 
 @app.get("/api/health")

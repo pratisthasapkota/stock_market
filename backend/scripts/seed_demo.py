@@ -1,10 +1,12 @@
-"""Seeds the database with a month of realistic-ish market data so the app is
-useful before any live crawl has run (e.g. for reviews/offline demo).
+"""Seeds the database with a few months of realistic-ish market data so the app
+is useful before any live crawl has run (e.g. for reviews/offline demo).
 
 Price series is a geometric random walk with sector-appropriate volatility;
 news is templated boilerplate that reads like NEPSE items; floorsheet rows are
-distributed across a handful of broker codes. None of this is real market data
-and it is explicitly labelled as demo in the admin UI.
+distributed across a handful of broker codes. A couple of deliberate volume
+spikes per company give the anomaly-alert and classifier screens something to
+find. None of this is real market data and it is explicitly labelled as demo in
+the admin UI.
 """
 import random
 from datetime import date, datetime, timedelta, timezone
@@ -96,19 +98,24 @@ def trading_days(n: int):
 def make_prices(spec):
     price = spec["base"]
     rows = []
-    for d in trading_days(30):
+    days = trading_days(90)
+    # pick 2 days to be volume spikes so the anomaly detector has signal
+    spike_days = {RNG.randrange(30, len(days)) for _ in range(2)}
+    for i, d in enumerate(days):
         price *= (1 + RNG.gauss(0.0, spec["vol"]))
         price = max(price, spec["base"] * 0.5)
         o, c = price, price * (1 + RNG.gauss(0.0, spec["vol"] * 0.6))
         h = max(o, c) * (1 + abs(RNG.gauss(0.0, spec["vol"] * 0.4)))
-        l = min(o, c) * (1 - abs(RNG.gauss(0.0, spec["vol"] * 0.4)))
+        low = min(o, c) * (1 - abs(RNG.gauss(0.0, spec["vol"] * 0.4)))
         vol = RNG.randint(8, 90) * 1000
+        if i in spike_days:
+            vol = int(vol * RNG.uniform(6, 9))
         rows.append(
             {
                 "date": d,
                 "open": round(o, 2),
                 "high": round(h, 2),
-                "low": round(l, 2),
+                "low": round(low, 2),
                 "close": round(c, 2),
                 "volume": float(vol),
                 "turnover": round(vol * c, 2),
@@ -140,8 +147,8 @@ def make_floorsheet(spec, company_id):
 def make_news():
     items = []
     now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, matches the column
-    for _ in range(70):
-        d = now - timedelta(days=RNG.randint(0, 28), hours=RNG.randint(0, 12))
+    for _ in range(160):
+        d = now - timedelta(days=RNG.randint(0, 88), hours=RNG.randint(0, 12))
         source = RNG.choice(["merolagani", "sharesansar", "nepsealpha", "bizmandu"])
         if RNG.random() < 0.22:
             title = RNG.choice(GENERIC_HEADLINES).format(

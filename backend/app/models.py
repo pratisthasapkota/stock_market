@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -6,11 +6,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
-    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -150,4 +150,25 @@ class JobLog(Base):
     kind: Mapped[str] = mapped_column(String(40), index=True)
     status: Mapped[str] = mapped_column(String(20), default="ok")
     detail: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Alert(Base):
+    """Raised when a watched condition trips, e.g. a volume-anomaly threshold.
+    Kept in the DB (not only pushed over the socket) so the admin view can show
+    what fired while nobody was looking."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("company_id", "date", "kind", name="uq_alert_company_day_kind"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    severity: Mapped[str] = mapped_column(String(10), default="medium")
+    message: Mapped[str] = mapped_column(String(300))
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

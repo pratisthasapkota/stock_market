@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..database import SessionLocal
 from ..events import publish
+from ..services.alerts import scan_volume_anomalies
 from ..services.ingest import (
     upsert_articles,
     upsert_floorsheet,
@@ -151,18 +152,33 @@ def crawl_market(triggered_by: int | None = None, run_id: int | None = None):
     db.commit()
 
     ok, err = True, ""
+    new_alerts = []
     try:
         out_file, n_written, err, code = _scrapy_run(MARKET_SPIDER, ["-a", f"watch={watch}"], run.id)
         run.items_found = n_written
         if out_file:
             run.items_new = _ingest_market_file(db, out_file)
         ok = code == 0
+        # fresh prices in hand, so re-check the anomaly thresholds
+        new_alerts = scan_volume_anomalies(db)
     except Exception as exc:
         ok = False
         err = str(exc)
     finally:
         _mark_run(db, run, "ok" if ok else "error", "" if ok else err)
         db.close()
+
+    for a in new_alerts:
+        publish(
+            {
+                "type": "alert_created",
+                "alert_id": a.id,
+                "company_id": a.company_id,
+                "severity": a.severity,
+                "message": a.message,
+                "at": datetime.utcnow().isoformat(),
+            }
+        )
 
     publish(
         {

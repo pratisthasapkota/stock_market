@@ -6,12 +6,14 @@ it is based on, because that matters more than a confident-sounding sentence.
 
 ## The data behind it
 
-The numbers below come from the bundled seed (six companies, thirty trading
-days, a week of floorsheet, ~67 articles), not from live NEPSE. I ran the same
+The numbers below come from the bundled seed (six companies, ninety trading
+days, a week of floorsheet, ~156 articles), not from live NEPSE. I ran the same
 `behavior-summary` code the API serves. The patterns are real properties of
 that series; they are not a market claim. What they do show is that the
 indicators move together the way they should, which is the thing I could
-actually verify in the time available.
+actually verify in the time available. The generator deliberately injects two
+block-sized volume days per company so the anomaly detector and the alerting
+path have something to find.
 
 ## The pattern
 
@@ -35,17 +37,27 @@ throws away the intraday window where news actually bites. But it is the reason
 the endpoint reports the coefficient rather than a yes/no, so nobody quotes
 "news predicts moves" off a number this shaky.
 
-The volume-anomaly detector (robust z, threshold 3.5) fired on almost none of
-the sample days, which is the correct behaviour for a series with no injected
-spikes: a detector that lights up on ordinary variation would be useless. It
-did catch the handful of days where the generator produced a block-sized
-print, and those days were also the ones carrying the largest next-day volume
-change — a reasonable sanity check on the threshold.
+The volume-anomaly detector (robust z, threshold 3.5) fired on the injected
+block-print days and stayed quiet on ordinary variation — which is the
+behaviour you want: a detector that lights up on normal volume would be noise.
+Those same flagged days also carried the largest next-day volume change, a
+reasonable sanity check on the threshold. The alert scan runs this over every
+watched company and, on the seed, produces exactly the six injected events
+(one per company, deduped by `(company, day, kind)`), which is what the admin
+"check now" button demonstrates.
+
+A third result is worth recording because it went the wrong way: the
+next-day direction classifier (`services/classifier.py`) typically scores *below*
+its majority-class baseline on this sample (e.g. walk-forward accuracy 0.63 vs a
+0.68 baseline). That is the correct outcome to report rather than hide — with
+~80 rows per company, synthetic prices, and no intraday or fundamental signal,
+there is nothing for a logistic regression to learn, so the honest screen shows
+the baseline right next to the accuracy and labels the whole thing experimental.
 
 ## What I would want before trusting it
 
 - **Real data.** All of the above needs a live crawl and ideally a few months,
-  not one synthetic month.
+  not one synthetic quarter.
 - **Intraday prints.** The volume-pressure read really wants intraday
   trades/order flow; daily OHLCV can only hint at it.
 - **A baseline.** "Sell pressure with steady volume leads somewhere" is only

@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["crawlers", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]
+# E501: baseline style is long-form; E712: SQLAlchemy uses `col == True`;
+# B008: FastAPI's Depends()/Query() belong in defaults; UP017: keep
+# timezone.utc for compatibility with the py3.10 floor some deploys may use.
+ignore = ["E501", "E712", "B008", "UP017"]
+
+[tool.ruff.lint.per-file-ignores]
+# these insert the backend dir on sys.path before importing app.* by design
+"scripts/*.py" = ["I001", "E402"]
+"tests/*.py" = ["I001", "E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

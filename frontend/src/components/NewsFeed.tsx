@@ -7,14 +7,24 @@ interface Props {
   companies: any[];
   currentCompanyId?: number;
   onCorrect: (articleId: number, companyId: number, action: "add" | "remove") => void;
+  /** admin review mode: allow removing any tag, not just the current company's */
+  allowRemoveAll?: boolean;
+  emptyText?: string;
 }
 
-export default function NewsFeed({ articles, companies, currentCompanyId, onCorrect }: Props) {
+export default function NewsFeed({
+  articles,
+  companies,
+  currentCompanyId,
+  onCorrect,
+  allowRemoveAll = false,
+  emptyText = "No tagged articles for this company yet.",
+}: Props) {
   const { role } = useAuth();
   const editable = can(role, "analyst");
   const [open, setOpen] = useState<number | null>(null);
 
-  if (!articles.length) return <p className="muted">No tagged articles for this company yet.</p>;
+  if (!articles.length) return <p className="muted">{emptyText}</p>;
 
   return (
     <div className="news-feed">
@@ -38,6 +48,15 @@ export default function NewsFeed({ articles, companies, currentCompanyId, onCorr
                     {co?.symbol ?? "?"}
                     <em>{t.confidence.toFixed(2)}</em>
                     {t.corrected && <em>·edited</em>}
+                    {allowRemoveAll && editable && (
+                      <button
+                        className="tag-x"
+                        title="remove tag"
+                        onClick={() => onCorrect(a.id, t.company_id, "remove")}
+                      >
+                        ×
+                      </button>
+                    )}
                   </span>
                 );
               })}

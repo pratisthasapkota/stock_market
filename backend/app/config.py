@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     crawl_delay_seconds: float = 1.5
     crawl_max_pages_per_portal: int = 40
 
+    # robust-z threshold for the volume-anomaly alert
+    volume_anomaly_z: float = 3.5
+    volume_anomaly_lookback: int = 20
+
     @property
     def cors_origin_list(self):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

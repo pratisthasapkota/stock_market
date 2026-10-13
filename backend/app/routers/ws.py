@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..deps import user_from_token_str
 from ..events import manager
-from ..security import role_at_least
 
 router = APIRouter()
 

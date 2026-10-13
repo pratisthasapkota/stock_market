@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { can, useAuth } from "../lib/auth";
 import { useLive } from "../lib/live";
 import PriceChart from "../components/PriceChart";
 import BehaviorPanel from "../components/BehaviorPanel";
@@ -11,6 +12,8 @@ export default function CompanyDetail() {
   const { id } = useParams();
   const companyId = Number(id);
   const { revision } = useLive();
+  const { role } = useAuth();
+  const canExport = can(role, "analyst");
 
   const [range, setRange] = useState("30d");
   const [company, setCompany] = useState<any>(null);
@@ -18,6 +21,8 @@ export default function CompanyDetail() {
   const [behavior, setBehavior] = useState<any>(null);
   const [articles, setArticles] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [forecast, setForecast] = useState<any>(null);
+  const [forecastErr, setForecastErr] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -34,6 +39,16 @@ export default function CompanyDetail() {
       setBehavior(b);
       setArticles(news);
       setError(null);
+      api
+        .directionForecast(companyId)
+        .then((f) => {
+          setForecast(f);
+          setForecastErr(null);
+        })
+        .catch((e) => {
+          setForecast(null);
+          setForecastErr(e.message);
+        });
     } catch (e: any) {
       setError(e.message);
     }
@@ -86,6 +101,32 @@ export default function CompanyDetail() {
           </span>
         </div>
         <div className="range-picker">
+          {canExport && (
+            <>
+              <button
+                className="chip"
+                onClick={() =>
+                  api.downloadReport(
+                    `/api/reports/news.csv?company_id=${companyId}&days=30`,
+                    `news_${company.symbol}.csv`
+                  )
+                }
+              >
+                export news
+              </button>
+              <button
+                className="chip"
+                onClick={() =>
+                  api.downloadReport(
+                    `/api/reports/behavior.csv?company_id=${companyId}&days=30`,
+                    `behavior_${company.symbol}.csv`
+                  )
+                }
+              >
+                export behaviour
+              </button>
+            </>
+          )}
           {["7d", "30d", "90d"].map((r) => (
             <button
               key={r}
@@ -117,6 +158,41 @@ export default function CompanyDetail() {
           </div>
         </div>
         <BehaviorPanel summary={behavior} />
+      </div>
+
+      <div className="card">
+        <div className="row between">
+          <h3>Next-day direction <span className="badge-warn">experimental</span></h3>
+        </div>
+        {forecastErr && <p className="muted small">{forecastErr}</p>}
+        {forecast && (
+          <>
+            <p>
+              Model leans{" "}
+              <span className={forecast.prediction === "up" ? "up" : "down"}>
+                {forecast.prediction}
+              </span>{" "}
+              (p(up)={forecast.prob_up}).
+            </p>
+            <p className="muted small">
+              Walk-forward accuracy {forecast.walk_forward_accuracy ?? "—"} vs
+              majority baseline {forecast.baseline_accuracy ?? "—"} over{" "}
+              {forecast.test_size} test days. Method: {forecast.method}.
+            </p>
+            <p className="muted small">
+              Top features:{" "}
+              {forecast.top_features
+                .map((f: any) => `${f.name} (${f.direction} ${f.weight})`)
+                .join(", ")}
+              .
+            </p>
+            <p className="muted small">
+              Exploratory only — small sample, no news-lead features, not investment
+              advice.
+            </p>
+          </>
+        )}
+        {!forecast && !forecastErr && <p className="muted">Loading…</p>}
       </div>
     </div>
   );

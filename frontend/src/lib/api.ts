@@ -89,12 +89,30 @@ export const api = {
   behavior: (id: number) => request<any>(`/api/companies/${id}/behavior-summary`),
   comparison: () => request<any>("/api/companies/comparison"),
 
-  news: (params: { company_id?: number; q?: string; source?: string } = {}) => {
+  news: (params: { company_id?: number; q?: string; source?: string; untagged?: boolean } = {}) => {
     const qs = new URLSearchParams();
     if (params.company_id) qs.set("company_id", String(params.company_id));
     if (params.q) qs.set("q", params.q);
     if (params.source) qs.set("source", params.source);
+    if (params.untagged) qs.set("untagged", "true");
     return request<any[]>(`/api/news?${qs.toString()}`);
+  },
+
+  async downloadReport(path: string, filename: string) {
+    const token = getToken();
+    const res = await fetch(`${BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new ApiError(res.status, "export failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   },
   recategorize: (id: number, company_id: number, action: "add" | "remove") =>
     request(`/api/news/${id}/recategorize`, {
@@ -111,4 +129,11 @@ export const api = {
   users: () => request<any[]>("/api/admin/users"),
   setRole: (id: number, role: Role) =>
     request(`/api/admin/users/${id}/role?role=${role}`, { method: "POST" }),
+
+  alerts: (onlyOpen = false) => request<any[]>(`/api/admin/alerts?only_open=${onlyOpen}`),
+  checkAlerts: () => request<{ created: number }>("/api/admin/alerts/check", { method: "POST" }),
+  ackAlert: (id: number) => request(`/api/admin/alerts/${id}/ack`, { method: "POST" }),
+
+  directionForecast: (id: number) =>
+    request<any>(`/api/companies/${id}/direction-forecast`),
 };

@@ -7,7 +7,14 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import get_current_user, require_role
 from ..models import Article, ArticleTag, Company, PriceDaily, User
-from ..schemas import CompanyCreate, CompanyOut, ComparisonOut, PriceOut, BehaviorSummary
+from ..schemas import (
+    BehaviorSummary,
+    CompanyCreate,
+    CompanyOut,
+    ComparisonOut,
+    DirectionForecast,
+    PriceOut,
+)
 from ..services.analysis import behavior_summary as build_behavior
 
 router = APIRouter()
@@ -95,6 +102,25 @@ def behavior(
     if not company:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     return build_behavior(db, company)
+
+
+@router.get("/{company_id}/direction-forecast", response_model=DirectionForecast)
+def direction_forecast(
+    company_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Exploratory, not advice. See services/classifier.py for the caveat and
+    the walk-forward evaluation it reports alongside the prediction."""
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
+    from ..services.classifier import forecast
+
+    try:
+        return forecast(db, company)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
 
 @router.get("/comparison", response_model=ComparisonOut)

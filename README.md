@@ -16,16 +16,20 @@ than left as comments in the code.
 ```
 backend/
   app/
-    routers/      auth, companies, news, admin, ws        (FastAPI)
-    services/     categorize.py, analysis.py, ingest.py
+    routers/      auth, companies, news, admin, reports, ws   (FastAPI)
+    services/     categorize.py, analysis.py, ingest.py, alerts.py, classifier.py
+    errors.py     one error envelope for every failure
     tasks/        celery app, crawl tasks, categorize task
     models.py     SQLAlchemy models
     events.py     redis pub/sub -> websocket fanout
   crawlers/       scrapy project: 4 news spiders + 1 market spider
   scripts/        seed_demo.py  (generates the bundled sample data)
+  tests/          pytest suite for the API surface
+  pyproject.toml  ruff + pytest config
 frontend/         React + Vite dashboard (recharts for the charts)
 deploy/           timescale init sql
 docker-compose.yml
+.github/workflows/ci.yml   lint + pytest (backend), typecheck + build (frontend)
 ```
 
 ## Running it
@@ -197,6 +201,46 @@ what it would need to mean something on real data, is in `FINDINGS.md`.
 
 ---
 
+## Reporting
+
+Analysts export the three lenses as CSV (`app/routers/reports.py`): the news
+stream, the per-company behaviour summary, and the cross-company comparison. The
+comparison export calls the exact same function the dashboard calls, so an
+export can never disagree with what is on screen. The frontend downloads them as
+authenticated blobs (the token can't ride along on a plain `<a href>`).
+
+---
+
+## Alerting
+
+`app/services/alerts.py` turns the volume-anomaly detector into a durable
+signal: one `alerts` row per `(company, day, kind)`, deduped by a unique
+constraint so a re-scan can't create duplicates. Alerts are created two ways —
+unattended at the end of every market crawl, and on demand from the admin
+"check now" button (`POST /api/admin/alerts/check`), which is also what makes
+the demo produce alerts right after seeding. Each new alert is published as an
+`alert_created` websocket event, and the Admin screen keeps an acknowledge list.
+I made alerts a table rather than a transient socket message because the point
+of an alert is to be there when nobody was looking.
+
+---
+
+## Next-day direction (exploratory)
+
+`app/services/classifier.py` is a logistic regression written out in plain
+Python (no numpy/sklearn) over five features — 1- and 5-day return, robust-z
+volume, and trailing 3-day news count and sentiment. It is evaluated
+**walk-forward** (train on the past, predict the next day) and the response
+always includes the majority-class baseline next to the accuracy, plus the top
+feature weights, so the number can't be read as more than it is. On the seeded
+sample it typically lands *at or below* the baseline — which is the honest
+result for ~80 rows of synthetic data with no intraday or fundamental features,
+and exactly why the UI labels it "experimental" and "not investment advice"
+rather than dressing it up. It exists to show the evaluation shape and give the
+data pipeline a real consumer.
+
+---
+
 ## Roles
 
 Server-side, in `deps.py` (`require_role`) — the frontend hides things but the
@@ -205,9 +249,9 @@ viewer gets 403 on admin routes.
 
 | role | can |
 |------|-----|
-| viewer | read dashboards, prices, news, behaviour, comparison |
-| analyst | everything a viewer can, plus correct news categories |
-| admin | everything, plus watchlist, crawl trigger/retry, re-tag, user roles |
+| viewer | read dashboards, prices, news, behaviour, comparison, direction forecast |
+| analyst | everything a viewer can, plus correct news categories, export CSV reports |
+| admin | everything, plus watchlist, crawl trigger/retry, re-tag, user roles, alerts |
 
 Roles are ranked (viewer < analyst < admin), so `require_role("analyst")` also
 admits admins.
@@ -222,11 +266,18 @@ Companies & market data
 - `PATCH /api/companies/:id` (admin)
 - `GET  /api/companies/:id/prices?range=30d`
 - `GET  /api/companies/:id/behavior-summary`
+- `GET  /api/companies/:id/direction-forecast` — exploratory, see below
 - `GET  /api/companies/comparison`
 
 News & analysis
-- `GET  /api/news?company_id=&source=&q=&limit=`
+- `GET  /api/news?company_id=&source=&q=&untagged=&limit=` — `untagged=true` is
+  the analyst review queue (articles no tagger matched)
 - `POST /api/news/:id/recategorize` (analyst) — `{company_id, action: add|remove}`
+
+Reports (analyst) — CSV, same data the dashboards read
+- `GET  /api/reports/news.csv?company_id=&days=`
+- `GET  /api/reports/behavior.csv?company_id=&days=`
+- `GET  /api/reports/comparison.csv`
 
 Auth
 - `POST /api/auth/login` (OAuth2 password form) → bearer token
@@ -239,8 +290,14 @@ Admin & real-time
 - `POST /api/admin/crawl-runs/:id/retry`
 - `POST /api/admin/retag`
 - `GET  /api/admin/users`, `POST /api/admin/users/:id/role`
+- `GET  /api/admin/alerts?only_open=`, `POST /api/admin/alerts/check`,
+  `POST /api/admin/alerts/:id/ack`
 - `WS   /ws/updates?token=<jwt>` — pushes `hello`, `crawl_finished`,
-  `market_finished`, `retag_finished`
+  `market_finished`, `retag_finished`, `alert_created`
+
+Every failure comes back in one shape — `{detail, error: {code, message, ...}}`
+— from `app/errors.py`, so the frontend has a single thing to parse. `detail` is
+kept as the plain message for the existing fetch helper.
 
 Full OpenAPI is at `/docs`. A ready-to-import Postman collection is not
 included; the Swagger UI plus the smoke flow below cover the same ground.
@@ -265,30 +322,40 @@ job problems in `job_log`, both visible on the admin screen.
 
 React + Vite + TypeScript. Three screens behind a login: per-company view
 (price/volume chart with a running VWAP line, categorized news feed with inline
-correction for analysts, behaviour panel), cross-company comparison (most
-volatile / most active / most in the news), and the admin screen (crawl board,
-manual trigger and retry, re-tag, watchlist, user roles). One WebSocket keeps
-all of them fresh: when a crawl finishes the connected pages refetch and a
-toast reports what landed. The layout collapses to a single column under 900px
-for tablet.
+correction for analysts, behaviour panel, an "experimental" direction-forecast
+card, and CSV export buttons for analysts), cross-company comparison (most
+volatile / most active / most in the news, plus an export button), and the admin
+screen (crawl board, manual trigger and retry, re-tag, watchlist, user roles, the
+news-correction review queue with an "untagged only" toggle, and the alert
+list with acknowledge). One WebSocket keeps all of them fresh: when a crawl
+finishes the connected pages refetch and a toast reports what landed (including
+new alerts). The layout collapses to a single column under 900px for tablet.
 
 ---
 
 ## Smoke flow I ran before submitting
 
 ```
-1. seed -> 6 companies, 180 price-days, ~350 floorsheet rows, ~67 articles
+1. seed -> 6 companies, 540 price-days, 361 floorsheet rows, 156 articles
 2. login admin -> GET companies/prices/behavior-summary/comparison/news  (all 200)
 3. behavior-summary on a symbol -> vwap, pressure score, broker table, news r
 4. viewer -> GET /api/admin/users  => 403
 5. viewer -> POST /api/admin/retag => 403
-6. analyst -> POST /api/news/:id/recategorize => tag added, article shows it
-7. admin -> POST /api/admin/retag => 200, re-tagged N articles
-8. admin -> POST /api/admin/crawl-runs?portal=market => run recorded; with the
-   scrapy binary absent it is marked error with the reason attached (not a
-   hang, not a blank console)
-9. websocket connect -> trigger retag -> received `retag_finished` frame
-10. frontend `npm run build` -> clean typecheck + production bundle
+6. viewer -> GET /api/reports/comparison.csv => 403
+7. analyst -> POST /api/news/:id/recategorize => tag added, article shows it
+8. analyst -> GET /api/reports/{news,behavior,comparison}.csv => 200 + text/csv
+9. analyst -> GET /api/news?untagged=true => returns the review queue only
+10. admin -> POST /api/admin/alerts/check => 6 alerts created; listed; ack 200;
+    a second check creates 0 (unique constraint holds)
+11. admin -> POST /api/admin/retag => 200, re-tagged N articles
+12. admin -> POST /api/admin/crawl-runs?portal=market => run recorded; with the
+    scrapy binary absent it is marked error with the reason attached (not a
+    hang, not a blank console)
+13. websocket connect -> trigger retag -> received `retag_finished` frame
+14. GET /api/companies/:id/direction-forecast => prediction + walk-forward
+    accuracy + baseline; 422 with the envelope when history is too short
+15. ruff check . => clean;  pytest -q => 15 passed
+16. frontend `npm run build` -> clean typecheck + production bundle
 ```
 
 ---
@@ -309,6 +376,8 @@ for tablet.
 - **Scaling past 10 companies.** Fine as-is (per-request queries are bounded),
   but the comparison endpoint loads the whole window into memory per call;
   past a few dozen symbols that should become a materialized summary table.
-- **Tests.** The smoke flow above is manual. The obvious next commit is pytest
-  around `categorize.tag_article`, `analysis.detect_volume_anomalies`, and the
-  RBAC dependency, since those are the pieces with logic worth pinning down.
+- **Tests.** `backend/tests/` is a pytest suite over the API surface (auth,
+  RBAC, the untagged review queue, recategorize, CSV reports, the alert scan +
+  dedup + ack, and the direction forecast including its 422 path), run with
+  `pytest -q` and gated in CI alongside `ruff check .`. It does not yet cover the
+  spiders themselves, which stay covered by the manual smoke flow above.

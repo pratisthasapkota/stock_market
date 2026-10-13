@@ -109,6 +109,33 @@ class CrawlRunOut(BaseModel):
     error: str
 
 
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    company_id: int
+    date: date
+    kind: str
+    severity: str
+    message: str
+    value: float
+    acknowledged: bool
+    created_at: datetime
+
+
+class DirectionForecast(BaseModel):
+    company_id: int
+    symbol: str
+    method: str
+    train_size: int
+    test_size: int
+    walk_forward_accuracy: float | None
+    baseline_accuracy: float | None
+    prob_up: float
+    prediction: str
+    top_features: list[dict]
+    generated_at: datetime
+
+
 class ComparisonOut(BaseModel):
     most_volatile: list[dict]
     most_active: list[dict]
