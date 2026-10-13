@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ except ImportError:  # inline mode (INLINE_JOBS=true) runs without celery instal
 from sqlalchemy.orm import Session
 
 from .. import models
+from ..config import settings
 from ..database import SessionLocal
 from ..events import publish
 from ..services.alerts import scan_volume_anomalies
@@ -44,10 +46,18 @@ NEWS_SPIDERS = {
 MARKET_SPIDER = "nepse_market"
 
 
-def _scrapy_run(spider: str, args: list[str], run_id: int) -> tuple[str, int, str]:
+def _scrapy_run(
+    spider: str, args: list[str], run_id: int, portal: str, page_budget: int | None = None
+) -> tuple[str, int, str, int]:
     """Runs one spider in a subprocess so port memory + crash isolation.
-    Returns (out_file, item_count, error_text, returncode)."""
-    out_file = tempfile.mktemp(suffix=".jsonl", prefix="crawl_")
+
+    Rate limiting is per portal: the download delay (and its AutoThrottle start
+    value) come from the portal's config override, falling back to the global
+    default, and the user agent is centralised too. Returns
+    (out_file, item_count, error_text, returncode)."""
+    fd, out_file = tempfile.mkstemp(suffix=".jsonl", prefix="crawl_")
+    os.close(fd)  # scrapy's pipeline reopens it for writing
+    delay = settings.crawl_delay_for(portal)
     cmd = [
         sys.executable,
         "-m",
@@ -60,8 +70,16 @@ def _scrapy_run(spider: str, args: list[str], run_id: int) -> tuple[str, int, st
         f"run_id={run_id}",
         "-s",
         "LOG_LEVEL=WARNING",
-        *args,
+        "-s",
+        f"DOWNLOAD_DELAY={delay}",
+        "-s",
+        f"AUTOTHROTTLE_START_DELAY={delay}",
+        "-s",
+        f"USER_AGENT={settings.crawl_user_agent}",
     ]
+    if page_budget is not None:
+        cmd += ["-a", f"page_budget={page_budget}"]
+    cmd += args
     proc = subprocess.run(cmd, cwd=str(CRAWLERS_DIR), capture_output=True, text=True, timeout=420)
     has_data = Path(out_file).exists() and Path(out_file).stat().st_size > 0
     n = sum(1 for _ in open(out_file, encoding="utf-8")) if has_data else 0
@@ -100,7 +118,9 @@ def crawl_portal(portal: str, triggered_by: int | None = None, run_id: int | Non
 
     ok = True
     try:
-        out_file, n_written, err, code = _scrapy_run(spider, [], run.id)
+        out_file, n_written, err, code = _scrapy_run(
+            spider, [], run.id, portal, page_budget=settings.crawl_max_pages_per_portal
+        )
         run.items_found = n_written
         if out_file:
             run.items_new = _ingest_news_file(db, out_file, run.id)
@@ -154,7 +174,9 @@ def crawl_market(triggered_by: int | None = None, run_id: int | None = None):
     ok, err = True, ""
     new_alerts = []
     try:
-        out_file, n_written, err, code = _scrapy_run(MARKET_SPIDER, ["-a", f"watch={watch}"], run.id)
+        out_file, n_written, err, code = _scrapy_run(
+            MARKET_SPIDER, ["-a", f"watch={watch}"], run.id, "market"
+        )
         run.items_found = n_written
         if out_file:
             run.items_new = _ingest_market_file(db, out_file)

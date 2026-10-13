@@ -26,6 +26,13 @@ class UserCreate(BaseModel):
     role: str = "viewer"
 
 
+class DemoAccount(BaseModel):
+    email: str
+    username: str
+    role: str
+    password: str
+
+
 class CompanyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

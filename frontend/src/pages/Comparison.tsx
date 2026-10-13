@@ -4,16 +4,31 @@ import { api } from "../lib/api";
 import { can, useAuth } from "../lib/auth";
 import { useLive } from "../lib/live";
 
-function Column({ title, rows, unit }: { title: string; rows: any[]; unit: string }) {
+interface Row {
+  company_id: number;
+  symbol: string;
+  value: number;
+  label: string;
+}
+
+function Column({ title, rows, unit }: { title: string; rows: Row[]; unit: string }) {
+  const max = rows.reduce((m, r) => Math.max(m, r.value), 0);
   return (
     <div className="card">
       <h3>{title}</h3>
       <table className="table">
         <tbody>
-          {rows.map((r) => (
+          {rows.map((r, i) => (
             <tr key={r.company_id}>
+              <td className="rank">{i + 1}</td>
               <td>
                 <Link to={`/company/${r.company_id}`}>{r.symbol}</Link>
+              </td>
+              <td className="bar-cell">
+                <span
+                  className={"hbar" + (i === 0 ? " lead" : "")}
+                  style={{ width: max ? `${Math.max(6, (r.value / max) * 100)}%` : "6%" }}
+                />
               </td>
               <td className="right muted small">{r.label}</td>
             </tr>
@@ -31,16 +46,27 @@ function Column({ title, rows, unit }: { title: string; rows: any[]; unit: strin
 }
 
 export default function Comparison() {
-  const { revision } = useLive();
+  const { revision, connected } = useLive();
   const { role } = useAuth();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let alive = true;
     api
       .comparison()
-      .then(setData)
-      .catch((e) => setError(e.message));
+      .then((d) => {
+        if (alive) {
+          setData(d);
+          setError(null);
+        }
+      })
+      .catch((e) => {
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
   }, [revision]);
 
   if (error) return <div className="error">{error}</div>;
@@ -49,9 +75,13 @@ export default function Comparison() {
   return (
     <div className="page">
       <div className="page-head">
-        <h2>Cross-company comparison</h2>
+        <div>
+          <h2>Cross-company comparison</h2>
+          <span className="muted">
+            last 30 days{connected && <> · <span className="up">live</span></>}
+          </span>
+        </div>
         <div className="row">
-          <span className="muted">last 30 days</span>
           {can(role, "analyst") && (
             <button
               className="chip"
@@ -59,7 +89,7 @@ export default function Comparison() {
                 api.downloadReport("/api/reports/comparison.csv", "comparison.csv")
               }
             >
-              export
+              export CSV
             </button>
           )}
         </div>

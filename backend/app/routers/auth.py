@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user, require_role
 from ..models import User
-from ..schemas import Token, UserCreate, UserOut
+from ..schemas import DemoAccount, Token, UserCreate, UserOut
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter()
@@ -13,7 +14,12 @@ router = APIRouter()
 
 @router.post("/login", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == form.username).first()
+    # accept either the username or the email so the login form works with both
+    user = (
+        db.query(User)
+        .filter((User.username == form.username) | (User.email == form.username))
+        .first()
+    )
     if not user or not verify_password(form.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "wrong username or password")
     if not user.is_active:
@@ -28,6 +34,19 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.get("/demo-accounts", response_model=list[DemoAccount])
+def demo_accounts():
+    """The seeded demo logins, for the login page's hint list.
+
+    Only available while DEMO_MODE is on, so a real deployment never hands out
+    working credentials. Keeping this server-side is what stops the passwords
+    from being baked into the public frontend bundle.
+    """
+    if not settings.demo_mode:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "demo mode is disabled")
+    return settings.demo_accounts
 
 
 @router.post("/register", response_model=UserOut)

@@ -1,0 +1,13 @@
+# keep the build context small and deterministic
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.scrapy/
+crawl_cache/
+data/
+*.log
+.env
+.env.*

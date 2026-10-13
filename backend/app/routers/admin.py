@@ -14,6 +14,27 @@ from ..schemas import AlertOut, CrawlRunOut, UserOut
 router = APIRouter()
 _pool = ThreadPoolExecutor(max_workers=2)
 
+NEWS_PORTALS = ("merolagani", "sharesansar", "nepsealpha", "bizmandu")
+
+
+def _expand_portals(portal: str) -> tuple[str, ...]:
+    """`all` fans out to the news portals; any other value is a single portal.
+    Each gets its own CrawlRun so their status/items never overwrite each
+    other on the admin board."""
+    return NEWS_PORTALS if portal == "all" else (portal,)
+
+
+def _dispatch(portal: str, run_id: int, triggered_by: int | None) -> None:
+    if settings.inline_jobs or not settings.redis_url:
+        _pool.submit(_run_inline, portal, run_id)
+        return
+    from ..tasks.crawl import crawl_market, crawl_portal
+
+    if portal == "market":
+        crawl_market.delay(triggered_by=triggered_by, run_id=run_id)
+    else:
+        crawl_portal.delay(portal, triggered_by=triggered_by, run_id=run_id)
+
 
 @router.get("/crawl-runs", response_model=list[CrawlRunOut])
 def list_crawl_runs(
@@ -29,48 +50,39 @@ def list_crawl_runs(
     )
 
 
-@router.post("/crawl-runs", response_model=CrawlRunOut, status_code=202)
+@router.post("/crawl-runs", response_model=list[CrawlRunOut], status_code=202)
 def trigger_crawl(
     portal: str = Query(..., pattern=r"^(all|merolagani|sharesansar|nepsealpha|bizmandu|market)$"),
     db: Session = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
     """Admin-only. Fans out to celery; without redis it runs inline in a
-    worker thread so local demos still work."""
-    run = CrawlRun(
-        portal=portal,
-        status="queued",  # admin sees it immediately even before the worker picks it up
-        triggered_by_id=user.id,
-    )
-    db.add(run)
+    worker thread so local demos still work. Returns one run per queued portal
+    (so `all` comes back as four rows)."""
+    runs = [
+        CrawlRun(
+            portal=name,
+            status="queued",  # admin sees it immediately, before the worker picks it up
+            triggered_by_id=user.id,
+        )
+        for name in _expand_portals(portal)
+    ]
+    db.add_all(runs)
     db.commit()
 
-    if settings.inline_jobs or not settings.redis_url:
-        _pool.submit(_run_inline, portal, run.id)
-    else:
-        from ..tasks.crawl import crawl_market, crawl_portal
-
-        if portal == "market":
-            crawl_market.delay(triggered_by=user.id, run_id=run.id)
-        elif portal == "all":
-            for name in ("merolagani", "sharesansar", "nepsealpha", "bizmandu"):
-                crawl_portal.delay(name, triggered_by=user.id, run_id=run.id)
-        else:
-            crawl_portal.delay(portal, triggered_by=user.id, run_id=run.id)
-    return run
+    for run in runs:
+        _dispatch(run.portal, run.id, user.id)
+    return runs
 
 
 def _run_inline(portal: str, run_id: int):
+    # portals are expanded by _expand_portals before dispatch, so this only
+    # ever sees a single portal
     try:
         if portal == "market":
             from ..tasks.crawl import crawl_market
 
             crawl_market(triggered_by=None, run_id=run_id)
-        elif portal == "all":
-            from ..tasks.crawl import crawl_portal
-
-            for name in ("merolagani", "sharesansar", "nepsealpha", "bizmandu"):
-                crawl_portal(name, run_id=run_id)
         else:
             from ..tasks.crawl import crawl_portal
 
@@ -98,7 +110,7 @@ def retry_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
     # re-run the same portal as a fresh entry; the old record stays as history
     portal = "market" if run.portal == "nepse_market" else run.portal
-    return trigger_crawl(portal, db, user)
+    return trigger_crawl(portal, db, user)[0]
 
 
 @router.post("/retag")

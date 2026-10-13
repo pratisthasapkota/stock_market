@@ -7,6 +7,22 @@ def test_health(client):
     assert res.json()["ok"] is True
 
 
+def test_admin_expands_all_portals():
+    from app.routers.admin import NEWS_PORTALS, _expand_portals
+
+    assert _expand_portals("all") == NEWS_PORTALS
+    assert _expand_portals("market") == ("market",)
+
+
+def test_per_portal_delay_override(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "crawl_delay_seconds", 1.5)
+    monkeypatch.setattr(settings, "crawl_portal_delays", {"sharesansar": 4.0})
+    assert settings.crawl_delay_for("sharesansar") == 4.0
+    assert settings.crawl_delay_for("merolagani") == 1.5
+
+
 def test_login_and_me(client):
     res = client.post("/api/auth/login", data={"username": "viewer", "password": "viewer123"})
     assert res.status_code == 200
@@ -19,6 +35,65 @@ def test_login_and_me(client):
 def test_login_bad_password(client):
     res = client.post("/api/auth/login", data={"username": "viewer", "password": "nope"})
     assert res.status_code == 401
+
+
+def test_login_accepts_email(client):
+    res = client.post(
+        "/api/auth/login", data={"username": "viewer@example.com", "password": "viewer123"}
+    )
+    assert res.status_code == 200
+    assert res.json()["role"] == "viewer"
+
+
+def test_demo_accounts_listed(client):
+    res = client.get("/api/auth/demo-accounts")
+    assert res.status_code == 200
+    body = res.json()
+    assert {a["role"] for a in body} == {"admin", "analyst", "viewer"}
+    assert all(a["password"] for a in body)
+
+
+def test_demo_accounts_hidden_when_disabled(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "demo_mode", False)
+    assert client.get("/api/auth/demo-accounts").status_code == 404
+
+
+def test_demo_seed_reconciles_password(monkeypatch):
+    """A changed DEMO_* config must overwrite an existing demo row, otherwise a
+    re-pointed password would 401 against the hash left by the first seed."""
+    from app import models
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.security import verify_password
+    from app.services.demo import seed_demo_users
+
+    monkeypatch.setattr(settings, "demo_admin_username", "reconcile_admin")
+    monkeypatch.setattr(settings, "demo_admin_email", "reconcile_admin@demo.local")
+    monkeypatch.setattr(settings, "demo_admin_password", "FirstPass@1")
+    monkeypatch.setattr(settings, "demo_analyst_username", "reconcile_analyst")
+    monkeypatch.setattr(settings, "demo_analyst_email", "reconcile_analyst@demo.local")
+    monkeypatch.setattr(settings, "demo_viewer_username", "reconcile_viewer")
+    monkeypatch.setattr(settings, "demo_viewer_email", "reconcile_viewer@demo.local")
+
+    db = SessionLocal()
+    try:
+        seed_demo_users(db)
+        db.commit()
+        user = db.query(models.User).filter_by(username="reconcile_admin").one()
+        assert verify_password("FirstPass@1", user.password_hash)
+
+        monkeypatch.setattr(settings, "demo_admin_password", "SecondPass@2")
+        assert seed_demo_users(db) >= 1
+        db.commit()
+        db.refresh(user)
+        assert verify_password("SecondPass@2", user.password_hash)
+    finally:
+        for name in ("reconcile_admin", "reconcile_analyst", "reconcile_viewer"):
+            db.query(models.User).filter_by(username=name).delete()
+        db.commit()
+        db.close()
 
 
 def test_companies_requires_auth(client):

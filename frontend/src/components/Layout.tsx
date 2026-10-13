@@ -14,7 +14,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">NEPSE <span>Research</span></div>
+        <div className="brand">NEPSE<span>Insight</span></div>
         <nav>
           <NavLink to="/dashboard" className={link}>
             Companies
@@ -50,7 +50,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <main className="content">{children}</main>
 
       <footer className="footer">
-        NEPSE Research — demo build. Data from the bundled seed unless a live crawl has run.
+        NEPSE Insight — demo build. Data from the bundled seed unless a live crawl has run.
       </footer>
     </div>
   );

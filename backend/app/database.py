@@ -1,9 +1,12 @@
+import logging
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
+
+log = logging.getLogger("db")
 
 connect_args = {}
 if settings.database_url.startswith("sqlite"):
@@ -51,3 +54,35 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_timeseries() -> bool:
+    """Turn ``price_daily`` into a Timescale hypertable when on PostgreSQL.
+
+    The ORM creates the tables at startup, which is *after* the Postgres init
+    scripts have run, so the hypertable conversion lives here rather than in
+    ``deploy/timescale-init.sql`` (that script would fail: the table does not
+    exist yet). It is idempotent and a no-op on SQLite or a plain PostgreSQL
+    without the Timescale extension, so local development is unaffected.
+
+    Returns True if the hypertable is in place.
+    """
+    if engine.dialect.name != "postgresql":
+        return False
+
+    statements = (
+        "CREATE EXTENSION IF NOT EXISTS timescaledb",
+        "SELECT create_hypertable('price_daily', 'date', "
+        "if_not_exists => TRUE, migrate_data => TRUE)",
+        "CREATE INDEX IF NOT EXISTS ix_price_daily_company_date "
+        "ON price_daily (company_id, date DESC)",
+    )
+    try:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+        log.info("price_daily is a timescale hypertable")
+        return True
+    except Exception as exc:  # extension missing or no privilege
+        log.warning("timescale hypertable setup skipped: %s", exc)
+        return False

@@ -11,7 +11,7 @@ import { fmtPct, fmtPrice, fmtVolume } from "../components/format";
 export default function CompanyDetail() {
   const { id } = useParams();
   const companyId = Number(id);
-  const { revision } = useLive();
+  const { revision, connected } = useLive();
   const { role } = useAuth();
   const canExport = can(role, "analyst");
 
@@ -24,6 +24,7 @@ export default function CompanyDetail() {
   const [forecast, setForecast] = useState<any>(null);
   const [forecastErr, setForecastErr] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   async function load() {
     try {
@@ -39,6 +40,7 @@ export default function CompanyDetail() {
       setBehavior(b);
       setArticles(news);
       setError(null);
+      setUpdatedAt(new Date());
       api
         .directionForecast(companyId)
         .then((f) => {
@@ -98,6 +100,8 @@ export default function CompanyDetail() {
             {company.sector} · {last ? fmtPrice(last.close) : "—"}{" "}
             <span className={change >= 0 ? "up" : "down"}>{fmtPct(change)}</span>
             {last && <> · vol {fmtVolume(last.volume)}</>}
+            {updatedAt && <> · updated {updatedAt.toLocaleTimeString()}</>}
+            {connected && <> · <span className="up">live</span></>}
           </span>
         </div>
         <div className="range-picker">

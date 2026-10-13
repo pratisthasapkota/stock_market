@@ -25,6 +25,20 @@ export default function BehaviorPanel({ summary }: { summary: any }) {
         </div>
       </div>
 
+      <div className="pressure-bar" title="sell ←→ buy">
+        <span
+          className="pressure-knob"
+          style={{
+            left: `${Math.round(((Number(summary.pressure_score) || 0) + 1) * 50)}%`,
+          }}
+        />
+      </div>
+      <div className="row between">
+        <span className="muted small">sell</span>
+        <span className="muted small">neutral</span>
+        <span className="muted small">buy</span>
+      </div>
+
       <h4>Volume anomalies</h4>
       {summary.volume_anomalies?.length ? (
         <table className="table">

@@ -42,12 +42,15 @@ class BaseNewsSpider(scrapy.Spider):
     title_selector = "h1::text"
     body_selector = ".entry-content, .post-content, .news-content, #content p::text"
 
-    def __init__(self, out_file=None, run_id=None, *args, **kwargs):
+    def __init__(self, out_file=None, run_id=None, page_budget=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not out_file:
             raise ValueError("spider requires out_file argument")
         self.out_file = out_file
         self.run_id = int(run_id or 0)
+        # comes from the app config over -a; cast because argv is always str
+        if page_budget is not None:
+            self.page_budget = int(page_budget)
         self._pages = 0
         self._items = 0
         self._seen_urls = set()

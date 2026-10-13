@@ -1,7 +1,8 @@
--- Runs once on first start of the postgres/timescale container.
+-- Runs once on first start of the TimescaleDB container.
+--
+-- Only the extension is created here. The ORM creates the tables at API
+-- startup, which is *after* these init scripts run, so the hypertable
+-- conversion cannot happen here (the table would not exist yet and the init
+-- script would abort the container). The API applies it idempotently once the
+-- tables exist -- see app/database.py:ensure_timeseries().
 CREATE EXTENSION IF NOT EXISTS timescaledb;
-
--- The ORM creates the tables; this turns price_daily into a hypertable.
--- Kept separate so local sqlite runs (no timescale) still work fine.
-SELECT create_hypertable('price_daily', 'date', if_not_exists => TRUE, migrate_data => TRUE);
-CREATE INDEX IF NOT EXISTS ix_price_daily_company_date ON price_daily (company_id, date DESC);

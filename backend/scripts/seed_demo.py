@@ -16,9 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.config import settings  # noqa: E402
 from app.database import SessionLocal, engine  # noqa: E402
 from app import models  # noqa: E402
-from app.security import hash_password  # noqa: E402
+from app.services.demo import seed_demo_users  # noqa: E402
 from app.services.ingest import (  # noqa: E402
     upsert_articles,
     upsert_company,
@@ -179,15 +180,7 @@ def make_news():
 def main():
     db = SessionLocal()
     try:
-        users = [
-            ("admin@example.com", "admin", "admin", "admin123"),
-            ("analyst@example.com", "analyst", "analyst", "analyst123"),
-            ("viewer@example.com", "viewer", "viewer", "viewer123"),
-        ]
-        for email, username, role, pw in users:
-            if not db.query(models.User).filter_by(username=username).first():
-                db.add(models.User(email=email, username=username, role=role, password_hash=hash_password(pw)))
-        db.flush()
+        seed_demo_users(db)
 
         price_days = floors = news_days = 0
         for spec in COMPANIES:
@@ -199,8 +192,12 @@ def main():
         db.commit()
         print(f"seeded: {len(COMPANIES)} companies, {price_days} price-days, "
               f"{floors} floorsheet rows, {news_days} new articles")
-        print("logins: admin/admin123 (admin), analyst/analyst123 (analyst), "
-              "viewer/viewer123 (viewer)")
+        if settings.demo_mode:
+            roles = ", ".join(f"{a['username']} ({a['role']})" for a in settings.demo_accounts)
+            print(f"demo logins: {roles}; passwords come from the DEMO_* env vars "
+                  "(see README / .env.example)")
+        else:
+            print("demo accounts skipped (DEMO_MODE=false)")
     finally:
         db.close()
 

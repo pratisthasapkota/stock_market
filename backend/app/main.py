@@ -8,10 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import models
 from .config import settings
-from .database import SessionLocal, engine
+from .database import SessionLocal, engine, ensure_timeseries
 from .errors import register_error_handlers
 from .events import manager, start_listener
 from .routers import admin, auth, companies, news, reports, ws
+from .services.demo import seed_demo_users
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 log = logging.getLogger("main")
@@ -21,10 +22,16 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 def _bootstrap():
     models.Base.metadata.create_all(bind=engine)
-    if not settings.seed_on_startup:
-        return
+    # tables now exist, so the Timescale hypertable conversion can be applied
+    ensure_timeseries()
     db = SessionLocal()
     try:
+        # reconcile the demo logins on every boot, not only on an empty db, so a
+        # changed DEMO_* config never leaves a stale password behind
+        if seed_demo_users(db):
+            db.commit()
+        if not settings.seed_on_startup:
+            return
         has_company = db.query(models.Company).first()
         if not has_company:
             log.info("empty db, seeding demo data")

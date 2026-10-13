@@ -8,6 +8,13 @@ export interface Session {
   username: string;
 }
 
+export interface DemoAccount {
+  email: string;
+  username: string;
+  role: Role;
+  password: string;
+}
+
 const TOKEN_KEY = "nepse.token";
 const USER_KEY = "nepse.user";
 
@@ -80,6 +87,8 @@ export const api = {
     saveSession(data);
     return data;
   },
+
+  demoAccounts: () => request<DemoAccount[]>("/api/auth/demo-accounts"),
 
   companies: () => request<any[]>("/api/companies"),
   addCompany: (payload: any) =>

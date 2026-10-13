@@ -1,6 +1,44 @@
+# Full-stack dev/demo stack: TimescaleDB + Redis + FastAPI + Celery + React.
+#
+#   cp .env.example .env        # optional -- every value below has a default,
+#   docker compose up --build   # so it also runs with no .env at all.
+#
+# Dashboard  http://localhost:5173     API + Swagger  http://localhost:8000/docs
+
+# Shared config for the three backend processes. Values come from a .env file
+# if present, otherwise the documented defaults. DATABASE_URL / REDIS_URL are
+# fixed to the compose network and are not meant to be overridden.
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg2://stock:stock@db:5432/stock
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+  CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}"
+  INLINE_JOBS: ${INLINE_JOBS:-false}
+  SEED_ON_STARTUP: ${SEED_ON_STARTUP:-true}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DEMO_MODE: ${DEMO_MODE:-true}
+  DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@demo.local}
+  DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:-admin}
+  DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-admin123}
+  DEMO_ANALYST_EMAIL: ${DEMO_ANALYST_EMAIL:-analyst@demo.local}
+  DEMO_ANALYST_USERNAME: ${DEMO_ANALYST_USERNAME:-analyst}
+  DEMO_ANALYST_PASSWORD: ${DEMO_ANALYST_PASSWORD:-analyst123}
+  DEMO_VIEWER_EMAIL: ${DEMO_VIEWER_EMAIL:-viewer@demo.local}
+  DEMO_VIEWER_USERNAME: ${DEMO_VIEWER_USERNAME:-viewer}
+  DEMO_VIEWER_PASSWORD: ${DEMO_VIEWER_PASSWORD:-viewer123}
+  CRAWL_USER_AGENT: "${CRAWL_USER_AGENT:-nepse-research-bot/0.1 (+contact: dev@example.com)}"
+  CRAWL_DELAY_SECONDS: ${CRAWL_DELAY_SECONDS:-1.5}
+  CRAWL_MAX_PAGES_PER_PORTAL: ${CRAWL_MAX_PAGES_PER_PORTAL:-40}
+
+# one backend image, built once and reused by api + worker + beat
+x-backend-build: &backend-build
+  context: ./backend
+
 services:
   db:
     image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: stock
       POSTGRES_PASSWORD: stock
@@ -11,60 +49,86 @@ services:
       - dbdata:/var/lib/postgresql/data
       - ./deploy/timescale-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stock"]
+      test: ["CMD-SHELL", "pg_isready -U stock -d stock"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 12
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   api:
-    build: ./backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    env_file: .env
+    build: *backend-build
+    image: nepse-backend:local
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      DATABASE_URL: postgresql+psycopg2://stock:stock@db:5432/stock
-      REDIS_URL: redis://redis:6379/0
+      <<: *backend-env
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
 
   worker:
-    build: ./backend
-    command: celery -A app.tasks.celery_app.celery worker -l info -Q crawl,categorize
-    env_file: .env
+    build: *backend-build
+    image: nepse-backend:local
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app.celery", "worker", "-l", "info", "-Q", "crawl,categorize"]
     environment:
-      DATABASE_URL: postgresql+psycopg2://stock:stock@db:5432/stock
-      REDIS_URL: redis://redis:6379/0
+      <<: *backend-env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   beat:
-    build: ./backend
-    command: celery -A app.tasks.celery_app.celery beat -l info
-    env_file: .env
+    build: *backend-build
+    image: nepse-backend:local
+    restart: unless-stopped
+    command: ["celery", "-A", "app.tasks.celery_app.celery", "beat", "-l", "info"]
     environment:
-      DATABASE_URL: postgresql+psycopg2://stock:stock@db:5432/stock
-      REDIS_URL: redis://redis:6379/0
+      <<: *backend-env
     depends_on:
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # empty => same-origin calls, proxied by nginx to the api service
+        VITE_API_BASE: ""
+    restart: unless-stopped
     ports:
       - "5173:80"
-    environment:
-      VITE_API_BASE: http://localhost:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 volumes:
   dbdata:
