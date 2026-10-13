@@ -1,0 +1,20 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+
+# node
+node_modules/
+dist/
+.vite/
+
+# scrapy / runtime junk
+.scrapy/
+*.log
+data/*.db
+data/*.sqlite3
+crawl_cache/
