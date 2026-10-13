@@ -8,7 +8,7 @@ from ..config import settings
 from ..database import SessionLocal, get_db
 from ..deps import require_role
 from ..models import CrawlRun, JobLog, User
-from ..schemas import CrawlRunOut
+from ..schemas import CrawlRunOut, UserOut
 
 router = APIRouter()
 _pool = ThreadPoolExecutor(max_workers=2)
@@ -116,10 +116,8 @@ def retag_now(db: Session = Depends(get_db), _: User = Depends(require_role("adm
     return {"retagged": result.get("articles_processed", 0)}
 
 
-@router.get("/users")
+@router.get("/users", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
-    from ..schemas import UserOut
-
     return db.query(User).order_by(User.id).all()
 
 
