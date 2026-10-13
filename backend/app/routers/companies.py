@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -161,7 +161,7 @@ def comparison(db: Session = Depends(get_db), _: User = Depends(get_current_user
         db.query(Company.id, Company.symbol, func.count(ArticleTag.id).label("n"))
         .join(ArticleTag, ArticleTag.company_id == Company.id)
         .join(Article, Article.id == ArticleTag.article_id)
-        .filter(Article.published_at.isnot(None))
+        .filter(Article.published_at >= datetime.combine(thirty, time.min))
         .group_by(Company.id, Company.symbol)
         .order_by(func.count(ArticleTag.id).desc())
         .all()

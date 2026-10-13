@@ -139,7 +139,7 @@ def make_floorsheet(spec, company_id):
 
 def make_news():
     items = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, matches the column
     for _ in range(70):
         d = now - timedelta(days=RNG.randint(0, 28), hours=RNG.randint(0, 12))
         source = RNG.choice(["merolagani", "sharesansar", "nepsealpha", "bizmandu"])

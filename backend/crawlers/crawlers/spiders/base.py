@@ -78,7 +78,7 @@ class BaseNewsSpider(scrapy.Spider):
             response.css("time::attr(datetime)").get()
             or response.css(".date, .meta, .published, time::text").get()
         )
-        published = parse_nepali_date(date_text) or datetime.now(timezone.utc)
+        published = parse_nepali_date(date_text) or datetime.now(timezone.utc).replace(tzinfo=None)
         if not title or not body:
             return
         yield {
