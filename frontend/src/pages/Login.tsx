@@ -186,28 +186,7 @@ export default function Login() {
           </button>
         </form>
 
-        {demo.length > 0 && (
-          <div className="login-demo">
-            <p className="login-demo-title">Demo accounts — click to fill</p>
-            {demo.map((acct) => (
-              <button
-                type="button"
-                key={acct.username}
-                className="login-demo-row"
-                onClick={() => {
-                  setEmail(acct.email);
-                  setPassword(acct.password);
-                  setFieldErrors({});
-                }}
-                title={`Use the ${acct.role} demo account`}
-              >
-                <b>{acct.role}</b>
-                <span className="cred">{acct.email}</span>
-                <span className="cred-secret">{acct.password}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        
 
         <p className="login-footer">Authorized access only · Secure role-based permissions</p>
       </div>
